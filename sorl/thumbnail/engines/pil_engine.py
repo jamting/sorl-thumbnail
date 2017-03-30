@@ -69,7 +69,7 @@ class Engine(EngineBase):
     def _orientation(self, image):
         try:
             exif = image._getexif()
-        except (AttributeError, IOError, KeyError, IndexError):
+        except:
             exif = None
 
         if exif:
@@ -82,22 +82,39 @@ class Engine(EngineBase):
             elif orientation == 4:
                 image = image.transpose(Image.FLIP_TOP_BOTTOM)
             elif orientation == 5:
-                image = image.rotate(-90).transpose(Image.FLIP_LEFT_RIGHT)
+                image = image.rotate(-90, expand=1).transpose(Image.FLIP_LEFT_RIGHT)
             elif orientation == 6:
-                image = image.rotate(-90)
+                image = image.rotate(-90, expand=1)
             elif orientation == 7:
-                image = image.rotate(90).transpose(Image.FLIP_LEFT_RIGHT)
+                image = image.rotate(90, expand=1).transpose(Image.FLIP_LEFT_RIGHT)
             elif orientation == 8:
-                image = image.rotate(90)
+                image = image.rotate(90, expand=1)
 
         return image
+
+    def _flip_dimensions(self, image):
+        try:
+            exif = image._getexif()
+        except (AttributeError, IOError, KeyError, IndexError):
+            exif = None
+
+        if exif:
+            orientation = exif.get(0x0112)
+            return orientation in [5, 6, 7, 8]
+
+        return False
 
     def _colorspace(self, image, colorspace):
         if colorspace == 'RGB':
             if image.mode == 'RGBA':
                 return image  # RGBA is just RGB + Alpha
             if image.mode == 'LA' or (image.mode == 'P' and 'transparency' in image.info):
-                return image.convert('RGBA')
+                newimage = image.convert('RGBA')
+                transparency = image.info.get('transparency')
+                if transparency is not None:
+                    mask = image.convert('RGBA').split()[-1]
+                    newimage.putalpha(mask)
+                return newimage
             return image.convert('RGB')
         if colorspace == 'GRAY':
             return image.convert('L')

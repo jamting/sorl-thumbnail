@@ -1,21 +1,21 @@
 # encoding=utf-8
 
 from __future__ import unicode_literals, division
+import json
 import os
 import re
 
 from django.core.files.base import File, ContentFile
-from django.core.files.storage import Storage, default_storage
+from django.core.files.storage import Storage  # , default_storage
+from django.utils.encoding import force_text
 from django.utils.functional import LazyObject, empty
-
 from sorl.thumbnail import default
 from sorl.thumbnail.conf import settings
-from sorl.thumbnail.compat import (json, urlopen, urlparse, urlsplit,
-                                   quote, quote_plus,
-                                   URLError, force_unicode, encode)
+from sorl.thumbnail.compat import (urlopen, urlparse, urlsplit,
+                                   quote, quote_plus, URLError, encode)
+from sorl.thumbnail.default import storage as default_storage
 from sorl.thumbnail.helpers import ThumbnailError, tokey, get_module_class, deserialize
 from sorl.thumbnail.parsers import parse_geometry
-
 
 url_pat = re.compile(r'^(https?|ftp):\/\/')
 
@@ -87,7 +87,17 @@ class ImageFile(BaseImageFile):
         if hasattr(file_, 'name'):
             self.name = file_.name
         else:
-            self.name = force_unicode(file_)
+            self.name = force_text(file_)
+
+        # TODO: Add a customizable naming method as a signal
+
+        # Remove query args from names. Fixes cache and signature arguments
+        # from third party services, like Amazon S3 and signature args.
+        self.name = self.name.split('?')[0]
+
+        # Support for relative protocol urls
+        if self.name.startswith('//'):
+            self.name = 'http:' + self.name
 
         # figure out storage
         if storage is not None:
@@ -128,7 +138,17 @@ class ImageFile(BaseImageFile):
             # This is the worst case scenario
             image = default.engine.get_image(self)
             size = default.engine.get_image_size(image)
+            if self.flip_dimensions(image):
+                size = list(size)
+                size.reverse()
         self._size = list(size)
+
+    def flip_dimensions(self, image):
+        """
+        Do not manipulate image, but ask engine whether we'd be doing a 90deg
+        rotation at some point.
+        """
+        return default.engine.flip_dimensions(image)
 
     @property
     def size(self):
@@ -139,7 +159,8 @@ class ImageFile(BaseImageFile):
         return self.storage.url(self.name)
 
     def read(self):
-        return self.storage.open(self.name).read()
+        with self.storage.open(self.name) as f:
+            return f.read()
 
     def write(self, content):
         if not isinstance(content, File):
@@ -194,20 +215,13 @@ class UrlStorage(Storage):
         url = encode(url, charset, 'ignore')
         scheme, netloc, path, qs, anchor = urlsplit(url)
 
-        # Encode to utf8 to prevent urllib KeyError
-        path = encode(path, charset, 'ignore')
-
-        path = quote(path, '/%')
-        qs = quote_plus(qs, ':&%=')
+        path = quote(path, b'/%')
+        qs = quote_plus(qs, b':&%=')
 
         return urlparse.urlunsplit((scheme, netloc, path, qs, anchor))
 
     def open(self, name, mode='rb'):
-        return urlopen(
-            self.normalize_url(name),
-            None,
-            settings.THUMBNAIL_URL_TIMEOUT
-        )
+        return urlopen(self.normalize_url(name))
 
     def exists(self, name):
         try:
@@ -225,7 +239,7 @@ class UrlStorage(Storage):
 
 def delete_all_thumbnails():
     storage = default.storage
-    path = os.path.join(storage.location, settings.THUMBNAIL_PREFIX)
+    path = settings.THUMBNAIL_PREFIX
 
     def walk(path):
         dirs, files = storage.listdir(path)

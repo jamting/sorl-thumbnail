@@ -1,4 +1,4 @@
-from django.core.cache import cache, get_cache, InvalidCacheBackendError
+from django.core.cache import cache, caches, InvalidCacheBackendError
 from sorl.thumbnail.kvstores.base import KVStoreBase
 from sorl.thumbnail.conf import settings
 from sorl.thumbnail.models import KVStore as KVStoreModel
@@ -11,10 +11,14 @@ class EMPTY_VALUE(object):
 class KVStore(KVStoreBase):
     def __init__(self):
         super(KVStore, self).__init__()
+
+    @property
+    def cache(self):
         try:
-            self.cache = get_cache(settings.THUMBNAIL_CACHE)
+            kv_cache = caches[settings.THUMBNAIL_CACHE]
         except InvalidCacheBackendError:
-            self.cache = cache
+            kv_cache = cache
+        return kv_cache
 
     def clear(self, delete_thumbnails=False):
         """
@@ -42,8 +46,11 @@ class KVStore(KVStoreBase):
         return value
 
     def _set_raw(self, key, value):
-        KVStoreModel.objects.get_or_create(
+        kvstore_value, created = KVStoreModel.objects.get_or_create(
             key=key, defaults={'value': value})
+        if not created:
+            kvstore_value.value = value
+            kvstore_value.save()
         self.cache.set(key, value, settings.THUMBNAIL_CACHE_TIMEOUT)
 
     def _delete_raw(self, *keys):

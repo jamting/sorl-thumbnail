@@ -10,9 +10,11 @@ from django.core.files.storage import default_storage
 from django.template.loader import render_to_string
 
 from sorl.thumbnail import default
+from sorl.thumbnail.base import ThumbnailBackend
 from sorl.thumbnail.conf import settings
 from sorl.thumbnail.helpers import get_module_class
 from sorl.thumbnail.images import ImageFile
+from sorl.thumbnail.parsers import parse_geometry
 from sorl.thumbnail.templatetags.thumbnail import margin
 from sorl.thumbnail.engines.pil_engine import Engine as PILEngine
 from .models import Item
@@ -176,6 +178,13 @@ class SimpleTestCase(BaseTestCase):
         output = p2.communicate()[0].strip()
         self.assertEqual(output.decode('utf-8'), '1')
 
+    def test_transparency(self):
+        item, _created = self.create_image(
+            '50x50_transparent.png', (50, 50), transparent=True)
+        th = self.BACKEND.get_thumbnail(item.image, '11x11', format='PNG')
+        img = Image.open(th.storage.path(th.name))
+        self.assertTrue(self.is_transparent(img))
+
     def test_image_file_deserialize(self):
         im = ImageFile(Item.objects.get(image='500x500.jpg').image)
         default.kvstore.set(im)
@@ -321,6 +330,19 @@ class CropTestCase(BaseTestCase):
         # TODO: Complete test for smart crop
         self.BACKEND.get_thumbnail('32x32', 'data/white_border.jpg', crop='smart')
 
+    @unittest.skipIf('pil_engine' not in settings.THUMBNAIL_ENGINE, 'the other engines fail this test')
+    def test_image_with_orientation(self):
+        name = 'data/aspect_test.jpg'
+        item, _ = Item.objects.get_or_create(image=name)
+
+        im = ImageFile(item.image)
+        th = self.BACKEND.get_thumbnail(im, '50x50')
+
+        # this is a 100x200 image with orientation 6 (90 degrees CW rotate)
+        # the thumbnail should end up 25x50
+        self.assertEqual(th.x, 25)
+        self.assertEqual(th.y, 50)
+
     def test_crop_image_with_icc_profile(self):
         name = 'data/icc_profile_test.jpg'
         item, _ = Item.objects.get_or_create(image=name)
@@ -340,6 +362,10 @@ class DummyTestCase(unittest.TestCase):
     def setUp(self):
         self.BACKEND = get_module_class(settings.THUMBNAIL_BACKEND)()
 
+    def tearDown(self):
+        super(DummyTestCase, self).tearDown()
+        settings.THUMBNAIL_ALTERNATIVE_RESOLUTIONS = []
+
     def test_dummy_tags(self):
         settings.THUMBNAIL_DUMMY = True
 
@@ -354,3 +380,44 @@ class DummyTestCase(unittest.TestCase):
         self.assertEqual(val, '<img src="http://dummyimage.com/600x400" width="600" height="400">')
 
         settings.THUMBNAIL_DUMMY = False
+
+    def test_alternative_resolutions(self):
+        settings.THUMBNAIL_DUMMY = True
+        settings.THUMBNAIL_ALTERNATIVE_RESOLUTIONS = [1.5, 2]
+        val = render_to_string('thumbnaild4.html', {}).strip()
+        self.assertEqual(val, '<img src="http://dummyimage.com/600x400" width="600" height="400" srcset="http://dummyimage.com/1200x800 2x; http://dummyimage.com/900x600 1.5x">')
+
+
+class ImageValidationTestCase(unittest.TestCase):
+    def setUp(self):
+        self.BACKEND = get_module_class(settings.THUMBNAIL_BACKEND)()
+
+    @unittest.expectedFailure  # See issue #427
+    def test_truncated_validation(self):
+        """
+        Test that is_valid_image returns false for a truncated image.
+        """
+        name = 'data/broken.jpeg'
+        with open(name, 'rb') as broken_jpeg:
+            data = broken_jpeg.read()
+
+        engine = PILEngine()
+
+        self.assertFalse(engine.is_valid_image(data))
+
+    @unittest.expectedFailure
+    # See issue #427. This seems to not-fail with wand.
+    def test_truncated_generation_failure(self):
+        """
+        Confirm that generating a thumbnail for our "broken" image fails.
+        """
+        name = 'data/broken.jpeg'
+        with open(name, 'rb') as broken_jpeg:
+
+            with self.assertRaises((OSError, IOError,)):
+                im = default.engine.get_image(broken_jpeg)
+
+                options = ThumbnailBackend.default_options
+                ratio = default.engine.get_image_ratio(im, options)
+                geometry = parse_geometry('120x120', ratio)
+                default.engine.create(im, geometry, options)

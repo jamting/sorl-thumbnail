@@ -5,11 +5,11 @@ Thumbnails for Django.
 Features at a glance
 ====================
 
-- Support for Django 1.4, 1.5, 1.6 and 1.7
-- Python 3 support (for Django 1.5, 1.6, 1.7)
+- Support for Django 1.8, 1.9, 1.10, following the `Django supported versions policy`_
+- Python 3 support
 - Storage support
-- Pluggable Engine support for `Pillow`_, `ImageMagick`_, `PIL`_, `Wand`_ and `pgmagick`_
-- Pluggable Key Value Store support (cached db, redis)
+- Pluggable Engine support for `Pillow`_, `ImageMagick`_, `PIL`_, `Wand`_, `pgmagick`_, and `vipsthumbnail`_
+- Pluggable Key Value Store support (cached db, redis, and dynamodb by AWS)
 - Pluggable Backend support
 - Admin integration with possibility to delete
 - Dummy generation (placeholders)
@@ -83,7 +83,7 @@ your project's settings. ::
 
 
 Templates Usage
-----------------
+---------------
 
 All of the examples assume that you first load the thumbnail template tag in
 your template.::
@@ -127,6 +127,23 @@ You can use the 'get_thumbnail'::
 See more examples in the section `Low level API examples`_ in the Documentation
 
 
+Frequently asked questions
+==========================
+
+Is so slow in Amazon S3 !
+-------------------------
+
+Possible related to the implementation of your Amazon S3 Backend, see the `issue #351`_
+due the storage backend reviews if there is an existing thumbnail when tries to
+generate the thumbnail that makes an extensive use of the S3 API
+
+A fast workaround if you are not willing to tweak your storage backend is to set::
+
+   THUMBNAIL_FORCE_OVERWRITE = True
+
+So it will avoid to overly query the S3 API.
+
+
 
 .. |travis| image:: https://secure.travis-ci.org/mariocesar/sorl-thumbnail.png?branch=master
     :target: https://travis-ci.org/mariocesar/sorl-thumbnail
@@ -135,13 +152,15 @@ See more examples in the section `Low level API examples`_ in the Documentation
 .. |coveralls| image:: https://coveralls.io/repos/mariocesar/sorl-thumbnail/badge.png?branch=master
     :target: https://coveralls.io/r/mariocesar/sorl-thumbnail?branch=master
 
-
 .. _`Pillow`: http://pillow.readthedocs.org/en/latest/
 .. _`ImageMagick`: http://www.imagemagick.org/script/index.php
 .. _`PIL`: http://www.pythonware.com/products/pil/
 .. _`Wand`: http://docs.wand-py.org/
 .. _`pgmagick`: http://pgmagick.readthedocs.org/en/latest/
+.. _`vipsthumbnail`: http://www.vips.ecs.soton.ac.uk/index.php?title=VIPS
 
 .. _`Template examples`: http://sorl-thumbnail.readthedocs.org/en/latest/examples.html#template-examples
 .. _`Model examples`: http://sorl-thumbnail.readthedocs.org/en/latest/examples.html#model-examples
 .. _`Low level API examples`: http://sorl-thumbnail.readthedocs.org/en/latest/examples.html#low-level-api-examples
+.. _`issue #351`: https://github.com/mariocesar/sorl-thumbnail/issues/351
+.. _`Django supported versions policy`: https://www.djangoproject.com/download/#supported-versions
